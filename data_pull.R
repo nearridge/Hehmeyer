@@ -7,6 +7,7 @@ library(glue)
  
 # Get most recent funding period
 current <- now() %>% 
+  # Adjust times to be in Eastern time because that is easiest cuz funding periods start at 00:00:00.
   with_tz("US/Eastern") 
 last_funding <- current %>% 
   floor_date("8 hour")
@@ -21,7 +22,6 @@ while (hold_date <= last_funding) {
   # print(url)
   recent_pull <- curl(url) %>%
     read_csv() %>%
-    # Adjust times to be in Eastern time because that is easiest cuz it starts at 0:00:00.
     mutate(timestamp = with_tz(timestamp, "US/Eastern"))
   df <- bind_rows(df, recent_pull)
    counter <- counter + 500
@@ -29,5 +29,5 @@ while (hold_date <= last_funding) {
     extract2(1,1)
 }
 
-# Uncomment to get updated data. Last updated at 10-01-2020 at 9:30 PM CST
+# Uncomment to get updated data. Last updated at 10-12-2020 at 9:00 AM CST
 # write_csv(df, "funding_data.csv")

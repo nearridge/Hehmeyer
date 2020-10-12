@@ -8,10 +8,20 @@ output: github_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
+library(data.table)
 
 data <- read_csv("funding_data.csv")
 ```
 
+
+```{r}
+running_size <- data %>%
+  mutate(signal = if_else(fundingRate > 0.0001, 1, 
+                          if_else(fundingRate < -0.0001, -1, 0))) %>%
+  group_by(rleid(signal)) %>%
+  mutate(cum = signal*cumsum(fundingRate)) %>%
+  ungroup()
+```
 
 ```{r}
 data %>%
@@ -21,4 +31,12 @@ data %>%
   geom_line() + 
   geom_hline(yintercept = -0.0001) + 
   geom_hline(yintercept = 0.0001)
+```
+
+```{r}
+running_size %>%
+  filter(timestamp > ymd_hms("2020-01-01 00:00:00", tz = "US/Eastern")) %>%
+  ggplot(aes(x = timestamp, y = size)) + 
+  geom_line() + 
+  labs(y = "Amount beyond threshold (0.0001)")
 ```
