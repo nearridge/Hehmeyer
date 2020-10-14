@@ -29,5 +29,5 @@ while (hold_date <= last_funding) {
     extract2(1,1)
 }
 
-# Uncomment to get updated data. Last updated at 10-12-2020 at 9:00 AM CST
-# write_csv(df, "funding_data.csv")
+# Uncomment to get updated data. Last updated at 10-14-2020 at 6:45 PM CST
+write_csv(df, "funding_data.csv")
