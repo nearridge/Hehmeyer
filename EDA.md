@@ -4,12 +4,7 @@ Neeraj Sharma
 10/1/2020
 
 ``` r
-running_size <- data %>%
-  mutate(signal = if_else(fundingRate > 0.0001, 1, 
-                          if_else(fundingRate < -0.0001, -1, 0))) %>%
-  group_by(rleid(signal)) %>%
-  mutate(cum = signal*cumsum(fundingRate)) %>%
-  ungroup()
+running_size <- data
 ```
 
 ``` r
@@ -20,7 +15,7 @@ data %>%
   geom_line() + 
   geom_hline(yintercept = -0.0001) + 
   geom_hline(yintercept = 0.0001) + 
-  labs(title = "Lifetime Funding Rate Data Plotted")
+  labs(title = "Lifetime Funding Rate Data Plotted") 
 ```
 
 ![](EDA_files/figure-gfm/unnamed-chunk-2-1.png)<!-- -->
@@ -102,3 +97,40 @@ pacf(training$fundingRate)
 ```
 
 ![](EDA_files/figure-gfm/unnamed-chunk-6-2.png)<!-- -->
+
+when the funding rate deviates from +1bps either below or above, how
+long did it take for the funding rate to revert back to +1bps when it
+was below and how long did it take when it was above
+
+``` r
+running_size <- running_size %>%
+  mutate(signal = if_else(fundingRate > 0.0001, 1, if_else(fundingRate < -0.0001, -1, 0)),
+         section = rleid(signal)) %>%
+  group_by(section) %>%
+  mutate(csum = cumsum(fundingRate),
+         csum = if_else(signal == 0, 0, csum),
+         id = row_number(),
+         id = ifelse(signal == 0, NA, id)) %>%
+  arrange(desc(row_number()))
+ 
+ggplot(running_size) + 
+  geom_line(aes(x = timestamp, y = csum), color = "red") + 
+  geom_line(aes(x = timestamp, y = fundingRate), color = "green")
+```
+
+![](EDA_files/figure-gfm/unnamed-chunk-7-1.png)<!-- -->
+
+``` r
+running_size %>%
+  summarize(max = max(id)) %>%
+  ggplot(aes(x = max)) + 
+  geom_histogram(color = "black")
+```
+
+    ## `summarise()` ungrouping output (override with `.groups` argument)
+
+    ## `stat_bin()` using `bins = 30`. Pick better value with `binwidth`.
+
+    ## Warning: Removed 543 rows containing non-finite values (stat_bin).
+
+![](EDA_files/figure-gfm/unnamed-chunk-7-2.png)<!-- -->
