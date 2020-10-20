@@ -10,9 +10,85 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(data.table)
 library(lubridate)
+library(knitr)
 
-data <- read_csv("funding_data.csv")
+data <- read_csv("../funding_data.csv")
 ```
+
+## When the funding rate deviates from +1bps either below or above, how long did it take for the funding rate to revert back to +1bps when it was below and how long did it take when it was above
+
+I produce a dataframe that has signals for whenever we are +/1 0.0001 on the funding rate and then count within the periods to get the period of reversion for each instance. 
+
+```{r}
+running_size <- data %>%
+  filter(timestamp > ymd_hms("2017-06-01 04:00:00", tz = "US/Eastern")) %>%
+  mutate(signal = if_else(fundingRate > 0.0001, 1, if_else(fundingRate < -0.0001, -1, 0)),
+         section = rleid(signal)) %>%
+  group_by(section) %>%
+  mutate(csum = cumsum(fundingRate),
+         csum = if_else(signal == 0, 0, csum),
+         id = row_number(),
+         id = ifelse(signal == 0, NA, id)) %>%
+  arrange(desc(row_number())) %>%
+  ungroup()
+```
+
+Check out how the id column counts each time we enter a period of significant funding. 
+
+```{r}
+running_size %>%
+  head(10) %>%
+  kable()
+```
+
+Here are a couple of visualization that examine this more closely.
+
+```{r}
+ggplot(running_size) + 
+  geom_line(aes(x = timestamp, y = csum, color = "Cumulative Sum")) + 
+  geom_line(aes(x = timestamp, y = fundingRate, color = "Funding Rate")) + 
+  labs(title = "Funding Rate and Cumulative Sum of Returns in Significant Funding Periods", x = "Time", y = "Returns", color = "") +
+  theme(legend.position = "bottom")
+
+running_size %>%
+  group_by(signal, section) %>%
+  filter(signal != 0) %>%
+  summarize(max = max(id)) %>%
+  ggplot(aes(x = max)) + 
+  geom_histogram(color = "black") + 
+  labs(title = "Histogram of Duration of Funding Periods (-1bps/+1bps)") + 
+  facet_wrap(~signal, scales = "free_x")
+
+
+
+#How should I model this?
+running_size %>%
+  filter(signal == 1) %>%
+  ggplot() + 
+  geom_line(mapping = aes(x = id, y = fundingRate, group = section), alpha = 0.3) + 
+  geom_smooth(mapping = aes(x = id, y = fundingRate)) +
+  labs(title = "Reversion tendencies of funding periods (+)", x = "Number of funding intervals")
+
+running_size %>%
+  filter(signal == -1) %>%
+  ggplot() + 
+  geom_line(mapping = aes(x = id, y = fundingRate, group = section), alpha = 0.3) + 
+  geom_smooth(mapping = aes(x = id, y = fundingRate)) +
+  labs(title = "Reversion tendencies of funding periods (-)", x = "Number of funding intervals")
+```
+
+Here are some of the summary stats on reversion in each direction
+
+```{r}
+running_size %>%
+  filter(signal != 0) %>%
+  group_by(signal) %>%
+  summarize(mean = mean(id), med = median(id), stdev = sd(id), count = n()) %>%
+  kable()
+
+```
+
+## Other random exploration
 
 ```{r}
 data %>%
@@ -88,57 +164,4 @@ acf(training$fundingRate)
 pacf(training$fundingRate)
 ```
 
-## When the funding rate deviates from +1bps either below or above, how long did it take for the funding rate to revert back to +1bps when it was below and how long did it take when it was above
 
-```{r}
-running_size <- data %>%
-  filter(timestamp > ymd_hms("2017-06-01 04:00:00", tz = "US/Eastern")) %>%
-  mutate(signal = if_else(fundingRate > 0.0001, 1, if_else(fundingRate < -0.0001, -1, 0)),
-         section = rleid(signal)) %>%
-  group_by(section) %>%
-  mutate(csum = cumsum(fundingRate),
-         csum = if_else(signal == 0, 0, csum),
-         id = row_number(),
-         id = ifelse(signal == 0, NA, id)) %>%
-  arrange(desc(row_number())) %>%
-  ungroup()
- 
-ggplot(running_size) + 
-  geom_line(aes(x = timestamp, y = csum, color = "Cumulative Sum")) + 
-  geom_line(aes(x = timestamp, y = fundingRate, color = "Funding Rate")) + 
-  labs(title = "Funding Rate and Cumulative Sum of Returns in Significant Funding Periods", x = "Time", y = "Returns", color = "") +
-  theme(legend.position = "bottom")
-
-running_size %>%
-  group_by(signal, section) %>%
-  filter(signal != 0) %>%
-  summarize(max = max(id)) %>%
-  ggplot(aes(x = max)) + 
-  geom_histogram(color = "black") + 
-  labs(title = "Histogram of Duration of Funding Periods (-1bps/+1bps)") + 
-  facet_wrap(~signal, scales = "free_x")
-
-
-
-#How should I model this?
-running_size %>%
-  filter(signal == 1) %>%
-  ggplot() + 
-  geom_line(mapping = aes(x = id, y = fundingRate, group = section), alpha = 0.3) + 
-  geom_smooth(mapping = aes(x = id, y = fundingRate)) +
-  labs(title = "Reversion tendencies of funding periods (+)")
-
-running_size %>%
-  filter(signal == -1) %>%
-  ggplot() + 
-  geom_line(mapping = aes(x = id, y = fundingRate, group = section), alpha = 0.3) + 
-  geom_smooth(mapping = aes(x = id, y = fundingRate)) +
-  labs(title = "Reversion tendencies of funding periods (-)")
-
-# Summary stats on reversion in each direction
-running_size %>%
-  filter(signal != 0) %>%
-  group_by(signal) %>%
-  summarize(mean = mean(id), med = median(id), stdev = sd(id), count = n())
-
-```
