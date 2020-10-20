@@ -92,6 +92,7 @@ pacf(training$fundingRate)
 
 ```{r}
 running_size <- data %>%
+  filter(timestamp > ymd_hms("2017-06-01 04:00:00", tz = "US/Eastern")) %>%
   mutate(signal = if_else(fundingRate > 0.0001, 1, if_else(fundingRate < -0.0001, -1, 0)),
          section = rleid(signal)) %>%
   group_by(section) %>%
@@ -99,7 +100,8 @@ running_size <- data %>%
          csum = if_else(signal == 0, 0, csum),
          id = row_number(),
          id = ifelse(signal == 0, NA, id)) %>%
-  arrange(desc(row_number()))
+  arrange(desc(row_number())) %>%
+  ungroup()
  
 ggplot(running_size) + 
   geom_line(aes(x = timestamp, y = csum, color = "Cumulative Sum")) + 
@@ -117,19 +119,26 @@ running_size %>%
   facet_wrap(~signal, scales = "free_x")
 
 
+
+#How should I model this?
 running_size %>%
   filter(signal == 1) %>%
   ggplot() + 
   geom_line(mapping = aes(x = id, y = fundingRate, group = section), alpha = 0.3) + 
-#  geom_smooth(mapping = aes(x = id, y = fundingRate), method = "lm") +
+  geom_smooth(mapping = aes(x = id, y = fundingRate)) +
   labs(title = "Reversion tendencies of funding periods (+)")
 
 running_size %>%
   filter(signal == -1) %>%
   ggplot() + 
   geom_line(mapping = aes(x = id, y = fundingRate, group = section), alpha = 0.3) + 
- # geom_smooth(mapping = aes(x = id, y = fundingRate), method = "lm") +
+  geom_smooth(mapping = aes(x = id, y = fundingRate)) +
   labs(title = "Reversion tendencies of funding periods (-)")
 
+# Summary stats on reversion in each direction
+running_size %>%
+  filter(signal != 0) %>%
+  group_by(signal) %>%
+  summarize(mean = mean(id), med = median(id), stdev = sd(id), count = n())
 
 ```
