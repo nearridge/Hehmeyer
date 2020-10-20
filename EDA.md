@@ -4,10 +4,6 @@ Neeraj Sharma
 10/1/2020
 
 ``` r
-running_size <- data
-```
-
-``` r
 data %>%
   mutate(above = if_else(fundingRate > 0.0001, 1, 
                         if_else(fundingRate < -0.0001, -1, 0))) %>%
@@ -18,10 +14,10 @@ data %>%
   labs(title = "Lifetime Funding Rate Data Plotted") 
 ```
 
-![](EDA_files/figure-gfm/unnamed-chunk-2-1.png)<!-- -->
+![](EDA_files/figure-gfm/unnamed-chunk-1-1.png)<!-- -->
 
 ``` r
-ytd2019 <- running_size %>%
+ytd2019 <- data %>%
   filter(timestamp < ymd_hms("2020-01-01 00:00:00", tz = "US/Eastern"),
          timestamp >= ymd_hms("2019-01-01 00:00:00", tz = "US/Eastern"))
 
@@ -38,12 +34,12 @@ ggplot() +
   labs(title = "Historic Funding Data for 2019 with Model Fitted")
 ```
 
-![](EDA_files/figure-gfm/unnamed-chunk-3-1.png)<!-- -->
+![](EDA_files/figure-gfm/unnamed-chunk-2-1.png)<!-- -->
 
 Lets see how the model fairs out of sample
 
 ``` r
-abbv_ytd2020 <- running_size %>%
+abbv_ytd2020 <- data %>%
   filter(timestamp <= ymd_hms("2020-01-07 20:00:00", tz = "US/Eastern"),
          timestamp >= ymd_hms("2020-01-01 00:00:00", tz = "US/Eastern"))
 
@@ -58,13 +54,13 @@ ggplot() +
   labs(title = "Zoomed in on Out of Sample prediction", subtitle = "This is not interesting because I don't have volatility. Need to pick a better sample.")
 ```
 
-![](EDA_files/figure-gfm/unnamed-chunk-4-1.png)<!-- -->
+![](EDA_files/figure-gfm/unnamed-chunk-3-1.png)<!-- -->
 
 Let me try this attempt to predict right at the beginning of a period of
 volatility
 
 ``` r
-ytd2020 <- running_size %>%
+ytd2020 <- data %>%
   filter(timestamp >= ymd_hms("2020-01-01 00:00:00", tz = "US/Eastern"))
 
 ggplot(ytd2020, aes(timestamp, fundingRate)) + 
@@ -74,7 +70,7 @@ ggplot(ytd2020, aes(timestamp, fundingRate)) +
   annotate("point", x = ymd_hms("2020-09-07 04:00:00"), y = -0.00075)
 ```
 
-![](EDA_files/figure-gfm/unnamed-chunk-5-1.png)<!-- -->
+![](EDA_files/figure-gfm/unnamed-chunk-4-1.png)<!-- -->
 
 Here is a model that is fit up until 2020-09-07 04:00:00. We will use
 this to predict the next 40 funding periods and see what happens.
@@ -90,20 +86,18 @@ testing <- ytd2020 %>%
 acf(training$fundingRate)
 ```
 
-![](EDA_files/figure-gfm/unnamed-chunk-6-1.png)<!-- -->
+![](EDA_files/figure-gfm/unnamed-chunk-5-1.png)<!-- -->
 
 ``` r
 pacf(training$fundingRate)
 ```
 
-![](EDA_files/figure-gfm/unnamed-chunk-6-2.png)<!-- -->
+![](EDA_files/figure-gfm/unnamed-chunk-5-2.png)<!-- -->
 
-when the funding rate deviates from +1bps either below or above, how
-long did it take for the funding rate to revert back to +1bps when it
-was below and how long did it take when it was above
+## When the funding rate deviates from +1bps either below or above, how long did it take for the funding rate to revert back to +1bps when it was below and how long did it take when it was above
 
 ``` r
-running_size <- running_size %>%
+running_size <- data %>%
   mutate(signal = if_else(fundingRate > 0.0001, 1, if_else(fundingRate < -0.0001, -1, 0)),
          section = rleid(signal)) %>%
   group_by(section) %>%
@@ -114,23 +108,49 @@ running_size <- running_size %>%
   arrange(desc(row_number()))
  
 ggplot(running_size) + 
-  geom_line(aes(x = timestamp, y = csum), color = "red") + 
-  geom_line(aes(x = timestamp, y = fundingRate), color = "green")
+  geom_line(aes(x = timestamp, y = csum, color = "Cumulative Sum")) + 
+  geom_line(aes(x = timestamp, y = fundingRate, color = "Funding Rate")) + 
+  labs(title = "Funding Rate and Cumulative Sum of Returns in Significant Funding Periods", x = "Time", y = "Returns", color = "") +
+  theme(legend.position = "bottom")
 ```
 
-![](EDA_files/figure-gfm/unnamed-chunk-7-1.png)<!-- -->
+![](EDA_files/figure-gfm/unnamed-chunk-6-1.png)<!-- -->
 
 ``` r
 running_size %>%
+  group_by(signal, section) %>%
+  filter(signal != 0) %>%
   summarize(max = max(id)) %>%
   ggplot(aes(x = max)) + 
-  geom_histogram(color = "black")
+  geom_histogram(color = "black") + 
+  labs(title = "Histogram of Duration of Funding Periods (-1bps/+1bps)") + 
+  facet_wrap(~signal, scales = "free_x")
 ```
 
-    ## `summarise()` ungrouping output (override with `.groups` argument)
+    ## `summarise()` regrouping output by 'signal' (override with `.groups` argument)
 
     ## `stat_bin()` using `bins = 30`. Pick better value with `binwidth`.
 
-    ## Warning: Removed 543 rows containing non-finite values (stat_bin).
+![](EDA_files/figure-gfm/unnamed-chunk-6-2.png)<!-- -->
 
-![](EDA_files/figure-gfm/unnamed-chunk-7-2.png)<!-- -->
+``` r
+running_size %>%
+  filter(signal == 1) %>%
+  ggplot() + 
+  geom_line(mapping = aes(x = id, y = fundingRate, group = section), alpha = 0.3) + 
+#  geom_smooth(mapping = aes(x = id, y = fundingRate), method = "lm") +
+  labs(title = "Reversion tendencies of funding periods (+)")
+```
+
+![](EDA_files/figure-gfm/unnamed-chunk-6-3.png)<!-- -->
+
+``` r
+running_size %>%
+  filter(signal == -1) %>%
+  ggplot() + 
+  geom_line(mapping = aes(x = id, y = fundingRate, group = section), alpha = 0.3) + 
+ # geom_smooth(mapping = aes(x = id, y = fundingRate), method = "lm") +
+  labs(title = "Reversion tendencies of funding periods (-)")
+```
+
+![](EDA_files/figure-gfm/unnamed-chunk-6-4.png)<!-- -->
