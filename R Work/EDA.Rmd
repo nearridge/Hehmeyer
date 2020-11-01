@@ -9,6 +9,7 @@ output: github_document
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(data.table)
+library(magrittr)
 library(lubridate)
 library(knitr)
 
@@ -21,7 +22,7 @@ I produce a dataframe that has signals for whenever we are +/1 0.0001 on the fun
 
 ```{r}
 running_size <- data %>%
-  filter(timestamp > ymd_hms("2017-06-01 04:00:00", tz = "US/Eastern")) %>%
+  filter(timestamp > ymd_hms("2017-06-05 04:00:00", tz = "US/Eastern")) %>%
   mutate(signal = if_else(fundingRate > 0.0001, 1, if_else(fundingRate < -0.0001, -1, 0)),
          section = rleid(signal)) %>%
   group_by(section) %>%
@@ -37,7 +38,7 @@ Check out how the id column counts each time we enter a period of significant fu
 
 ```{r}
 running_size %>%
-  head(10) %>%
+  head(11) %>%
   kable()
 ```
 
