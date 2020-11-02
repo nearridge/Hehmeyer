@@ -6,19 +6,27 @@ output: github_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = FALSE)
 library(tidyverse)
 library(data.table)
 library(magrittr)
+library(gghighlight)
 library(lubridate)
+library(glue)
 library(knitr)
+library(fitdistrplus)
 
 data <- read_csv("../funding_data.csv")
 ```
 
-## When the funding rate deviates from +1bps either below or above, how long did it take for the funding rate to revert back to +1bps when it was below and how long did it take when it was above
+# KEY FINDINGS
 
-I produce a dataframe that has signals for whenever we are +/1 0.0001 on the funding rate and then count within the periods to get the period of reversion for each instance. 
+The median duration of deviation for the funding rate data is 3 for both above and below. However, the mean is considerably higher for 
+
+## When the funding rate deviates from +1bps either below or above, how long did it take for the funding rate to revert back to +1bps when it was below and how long did it take when it was above.
+
+I produce a dataframe that has signals for whenever we are +/- 0.0001 basis points and then count within these periods to get the length of each period of deviation. This is a sample of the dataframe I produce. Signal indicates if you are positive (1), negative (-1), or neutral (0). Section counts increases every time signal changes, meaning it counts the unique number of meaningful periods of funding. CSum is the cumulative sum within a period of significant funding. ID counts the position within a period of significant funding. 
+
 
 ```{r}
 running_size <- data %>%
@@ -32,11 +40,7 @@ running_size <- data %>%
          id = ifelse(signal == 0, NA, id)) %>%
   arrange(desc(row_number())) %>%
   ungroup()
-```
 
-Check out how the id column counts each time we enter a period of significant funding. 
-
-```{r}
 running_size %>%
   head(11) %>%
   kable()
@@ -45,12 +49,6 @@ running_size %>%
 Here are a couple of visualization that examine this more closely.
 
 ```{r}
-ggplot(running_size) + 
-  geom_line(aes(x = timestamp, y = csum, color = "Cumulative Sum")) + 
-  geom_line(aes(x = timestamp, y = fundingRate, color = "Funding Rate")) + 
-  labs(title = "Funding Rate and Cumulative Sum of Returns in Significant Funding Periods", x = "Time", y = "Returns", color = "") +
-  theme(legend.position = "bottom")
-
 running_size %>%
   group_by(signal, section) %>%
   filter(signal != 0) %>%
@@ -84,10 +82,134 @@ Here are some of the summary stats on reversion in each direction
 running_size %>%
   filter(signal != 0) %>%
   group_by(signal) %>%
-  summarize(mean = mean(id), med = median(id), stdev = sd(id), count = n()) %>%
+  summarize(mean = mean(id),
+            med = median(id),
+            stdev = sd(id)) %>% right_join(
+              running_size %>%
+                group_by(signal, section) %>%
+                filter(id == max(id)) %>%
+                ungroup() %>%
+                group_by(signal) %>%
+                summarize(`number of unique periods` = n())
+            ) %>%
   kable()
-
 ```
+
+## What is the cumulative funding rate? Sum of the funding rates when cumulative days above or below 1?
+
+Aggregate funding rate throughout all history. 
+
+```{r}
+running_size %>% 
+  arrange(timestamp) %>% 
+  mutate(cumsum = cumsum(fundingRate)) %>%
+  ggplot() +
+  geom_line(aes(x = timestamp, y = cumsum)) + 
+  labs(title = "Aggregate running cumulative sum of funding rate")
+```
+
+```{r}
+ggplot(running_size) + 
+  geom_line(aes(x = timestamp, y = csum)) + 
+  labs(title = "Cumulative Sum of Funding Rates ONLY within Significant Funding Periods", x = "Time", y = "Returns", color = "") +
+  theme(legend.position = "bottom")
+```
+
+```{r}
+running_size %>%
+  filter(signal == 1) %>%
+  ggplot() + 
+  geom_line(mapping = aes(x = id, y = csum, group = section)) + 
+  geom_smooth(aes(x = id, y = csum), method = "lm") + 
+  gghighlight(max(csum) > 0.03, label_key = section, unhighlighted_params = list(alpha = 1)) +
+  labs(title = "Cumulative Sum of Funding Rate in Significant Periods (+)", subtitle = "Normed to uniform start index", x = "Number of funding intervals")
+
+running_size %>%
+  filter(signal == -1) %>%
+  ggplot() + 
+  geom_line(mapping = aes(x = id, y = csum, group = section)) + 
+  geom_smooth(aes(x = id, y = csum), method = "lm") + 
+  gghighlight(min(csum) < -0.03, label_key = section, unhighlighted_params = list(alpha = 1)) +
+  labs(title = "Cumulative Sum of Funding Rate in Significant Periods (+)", subtitle = "normed to uniform start index", x = "Number of funding intervals")
+```
+
+Summary stats of cumulative returns in terms of value of the cumulative return. 
+
+```{r}
+running_size %>%
+  filter(signal != 0) %>%
+  group_by(signal) %>%
+  summarize(mean = mean(csum), min = min(csum), med = median(csum), max = max(csum), stdev = sd(csum)) %>%
+  kable()
+```
+
+## 3. What is the likelihood of funding rate deviating from 1 again in the next 1 period
+
+I want P(FR_t+1 > 0.0001 | FR_t > 0.0001). Alternatively, fit a poisson distribution, but the issue here is that we are not independently generated. If a event occured in t, it is likely it occured in t+1 it seems based on investor behavior. My research says that modeling these events with a poisson distribution yields an upper-bound approximation for the true distribution. That is still insightful, given the distribution of the data clearly lends itself to 1 period being the highest likelyhood of deviation duration. 
+
+```{r}
+running_size %>%
+  filter(signal == 1) %>%
+  group_by(id) %>%
+  summarize(count = n()) %>%
+  mutate(prob = count / sum(count)) %>%
+  bind_cols(dpois(c(1:36), mean(
+    running_size %>%
+      filter(signal == 1) %>%
+      pull(id)
+  ))) %>%
+  ggplot(aes(x = id, y = prob)) +
+  geom_col() +
+  geom_text(aes(label = round(prob, 3), y = prob + 0.01), angle = 45) +
+  geom_line(aes(x = id, y = `...4`)) +
+  geom_vline(xintercept = mean(
+    running_size %>%
+      filter(signal == 1) %>%
+      pull(id)
+  )) + 
+  annotate("text", x = mean(
+    running_size %>%
+      filter(signal == 1) %>%
+      pull(id)
+  ), y = 0.2, label = glue("lambda = \n", mean(
+    running_size %>%
+      filter(signal == 1) %>%
+      pull(id)
+  ) %>% round(3))) + 
+  labs(title = "distribution of length of significant period with upper-bound PMF overlaid (+)", subtitle = "probability that you're currently in the last period. Likelyhood you will deviate again is 1-p")
+
+running_size %>%
+  filter(signal == -1) %>%
+  group_by(id) %>%
+  summarize(count = n()) %>%
+  mutate(prob = count / sum(count)) %>%
+  bind_cols(dpois(c(1:22), mean(
+    running_size %>%
+      filter(signal == -1) %>%
+      pull(id)
+  ))) %>%
+  ggplot(aes(x = id, y = prob)) +
+  geom_col() +
+  geom_text(aes(label = round(prob, 3), y = prob + 0.01), angle = 45) +
+  geom_line(aes(x = id, y = `...4`)) +
+  geom_vline(xintercept = mean(
+    running_size %>%
+      filter(signal == -1) %>%
+      pull(id)
+  )) + 
+  annotate("text", x = mean(
+    running_size %>%
+      filter(signal == -1) %>%
+      pull(id)
+  ), y = 0.27, label = glue("lambda = \n", mean(
+    running_size %>%
+      filter(signal == -1) %>%
+      pull(id)
+  ) %>% round(3))) + 
+  labs(title = "distribution of length of significant period with upper-bound PMF overlaid (-)", subtitle = "probability that you're currently in the last period. Likelyhood you will deviate again is 1-p")
+```
+
+To get a middle and lower bound, your answer is just 1 by gut checking the data above. 
 
 ## Other random exploration
 
