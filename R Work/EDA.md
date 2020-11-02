@@ -6,8 +6,26 @@ Neeraj Sharma
 # KEY FINDINGS
 
 The median duration of deviation for the funding rate data is 3 for both
-above and below. However, the mean is considerably higher
-for
+above and below. However, the mean length of deviation is considerably
+higher for positive swings; 5.8 versus 4.9. Furthermore, there appear to
+be considerably more periods of negative funding than positve funding
+(291 vs 199); a difference of 92 periods. This implies that the price of
+swaps exceeds the spot price of bitcoin more than the converse.
+
+In terms of projecting the cumulative returns to funding, it appears
+that positive funding periods return more than negative funding periods.
+The coefficient for time in the positive funding regression is 0.0019147
+while the coefficient for the negative funding regression is -0.0013052.
+Furthermore, the median cumulative funding return is considerably higher
+for positive funding periods compared to negative funding periods.
+
+Finally, all things considered, I find that funding periods are
+generally extremely short lived. Based on visual analysis of the
+distributions of funding history lengths, funding is likely to last only
+for 1 period. However, by modeling using a distribution function which
+likely provides a closer upper bound on the true likelihood indicates
+that positive funding tends to last longer than negative
+funding.
 
 ## When the funding rate deviates from +1bps either below or above, how long did it take for the funding rate to revert back to +1bps when it was below and how long did it take when it was above.
 
@@ -78,10 +96,20 @@ Aggregate funding rate throughout all history.
 
 ![](EDA_files/figure-gfm/unnamed-chunk-6-1.png)<!-- -->
 
+| term        |    estimate | std.error |  statistic | p.value |
+| :---------- | ----------: | --------: | ---------: | ------: |
+| (Intercept) | \-0.0027048 | 0.0004738 | \-5.708229 |       0 |
+| id          |   0.0019147 | 0.0000536 |  35.741441 |       0 |
+
     ## `geom_smooth()` using formula 'y ~ x'
     ## `geom_smooth()` using formula 'y ~ x'
 
 ![](EDA_files/figure-gfm/unnamed-chunk-6-2.png)<!-- -->
+
+| term        |    estimate | std.error |   statistic | p.value |
+| :---------- | ----------: | --------: | ----------: | ------: |
+| (Intercept) |   0.0009795 | 0.0001964 |    4.987889 |   7e-07 |
+| id          | \-0.0013052 | 0.0000358 | \-36.411923 |   0e+00 |
 
 Summary stats of cumulative returns in terms of value of the cumulative
 return.
