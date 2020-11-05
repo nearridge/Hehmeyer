@@ -5,7 +5,9 @@ library(magrittr)
 library(lubridate)
 library(stringr)
 
-startDate <- ymd("20170605")
+
+## BEGINNING FROM START
+startDate <- ymd("20180604")
 endDate <- today() %>% ymd()
 op <- options(digits.secs = 10)
 
@@ -22,7 +24,9 @@ while (startDate <= endDate - 1) {
            hour(timestamp) == 4 | hour(timestamp) == 12 | hour(timestamp) == 20)
   data <- bind_rows(data, read)
   startDate <- startDate + 1
+  print(startDate)
 }
 
-
 write_csv(data, "price_data.csv")
+
+## UPDATING EXISTING DATA SHEET
