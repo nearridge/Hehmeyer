@@ -6,7 +6,7 @@ output: github_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(echo = FALSE, message = FALSE)
 library(tidyverse)
 library(data.table)
 library(magrittr)
@@ -35,9 +35,10 @@ I produce a dataframe that has signals for whenever we are +/- 0.0001 basis poin
 
 ```{r}
 running_size <- data %>%
-  filter(timestamp > ymd_hms("2017-06-05 04:00:00", tz = "US/Eastern")) %>%
+  filter(timestamp >= ymd_hms("2018-06-05 04:00:00")) %>%
   mutate(signal = if_else(fundingRate > 0.0001, 1, if_else(fundingRate < -0.0001, -1, 0)),
-         section = rleid(signal)) %>%
+         section = rleid(signal),
+         timestamp = force_tz(timestamp, "US/Eastern")) %>%
   group_by(section) %>%
   mutate(csum = cumsum(fundingRate),
          csum = if_else(signal == 0, 0, csum),
@@ -70,14 +71,14 @@ running_size %>%
   filter(signal == 1) %>%
   ggplot() + 
   geom_line(mapping = aes(x = id, y = fundingRate, group = section), alpha = 0.3) + 
-  geom_smooth(mapping = aes(x = id, y = fundingRate)) +
+#  geom_smooth(mapping = aes(x = id, y = fundingRate)) +
   labs(title = "Reversion tendencies of funding periods (+)", x = "Number of funding intervals")
 
 running_size %>%
   filter(signal == -1) %>%
   ggplot() + 
   geom_line(mapping = aes(x = id, y = fundingRate, group = section), alpha = 0.3) + 
-  geom_smooth(mapping = aes(x = id, y = fundingRate)) +
+#  geom_smooth(mapping = aes(x = id, y = fundingRate)) +
   labs(title = "Reversion tendencies of funding periods (-)", x = "Number of funding intervals")
 ```
 
@@ -124,9 +125,9 @@ ggplot(running_size) +
 running_size %>%
   filter(signal == 1) %>%
   ggplot() + 
-  geom_line(mapping = aes(x = id, y = csum, group = section)) + 
+  geom_line(mapping = aes(x = id, y = csum, group = section), alpha = 0.25) + 
   geom_smooth(aes(x = id, y = csum), method = "lm") + 
-  gghighlight(max(csum) > 0.03, label_key = section, unhighlighted_params = list(alpha = 1)) +
+  #gghighlight(max(csum) > 0.03, label_key = section, unhighlighted_params = list(alpha = 1)) +
   labs(title = "Cumulative Sum of Funding Rate in Significant Periods (+)", subtitle = "Normed to uniform start index", x = "Number of funding intervals")
 
 lm(csum ~ id, data = running_size %>% filter(signal == 1)) %>%
@@ -136,9 +137,9 @@ lm(csum ~ id, data = running_size %>% filter(signal == 1)) %>%
 running_size %>%
   filter(signal == -1) %>%
   ggplot() + 
-  geom_line(mapping = aes(x = id, y = csum, group = section)) + 
+  geom_line(mapping = aes(x = id, y = csum, group = section), alpha = 0.25) + 
   geom_smooth(aes(x = id, y = csum), method = "lm") + 
-  gghighlight(min(csum) < -0.03, label_key = section, unhighlighted_params = list(alpha = 1)) +
+  #gghighlight(min(csum) < -0.03, label_key = section, unhighlighted_params = list(alpha = 1)) +
   labs(title = "Cumulative Sum of Funding Rate in Significant Periods (+)", subtitle = "normed to uniform start index", x = "Number of funding intervals")
 
 lm(csum ~ id, data = running_size %>% filter(signal == -1)) %>%
@@ -166,7 +167,7 @@ running_size %>%
   group_by(id) %>%
   summarize(count = n()) %>%
   mutate(prob = count / sum(count)) %>%
-  bind_cols(dpois(c(1:36), mean(
+  bind_cols(dpois(c(1:31), mean(
     running_size %>%
       filter(signal == 1) %>%
       pull(id)
@@ -224,6 +225,59 @@ running_size %>%
 
 To get a middle and lower bound, your answer is just 1 by gut checking the data above. 
 
+
+## Funding rate and price data analysis
+
+we want to answer the question, if prices move by x%, funding rate moves by y% in n periods so funding is left hand and prices is RHS. The other way around would be easier to model because I could use a build a factor model against a crypto index. That would be somthing like:
+
+$$
+r_{swap,t} - r_f = \beta_0 + \beta_1\left(r_{index, t} - r_f\right) + \beta_2\left(\text{funding}_t\right) + \varepsilon_t
+$$
+
+Funding is already a rate so it wouldn't be converted to a return because it is already a reurn series. If you believe that the retu
+
+However, simple approach:
+
+```{r message = FALSE}
+price_data <- read_csv("../price_data.csv") %>%
+  arrange(desc(timestamp)) %>%
+  dplyr::select(`timestamp`, `price`) %>%
+  mutate(timestamp = with_tz(timestamp),
+         timestamp = floor_date(timestamp, unit = "minute"),
+         pct_delp = (price-lead(price))/lead(price))
+
+funding_data <- running_size %>%
+  dplyr::select(-fundingInterval) %>%
+  mutate(pct_delf = (fundingRate - lead(fundingRate))/lead(fundingRate))
+
+full_df <- inner_join(price_data, funding_data)
+
+full_df %>%
+  filter(not(between(timestamp, ymd_hms("20200301 00:00:00"), ymd_hms("20200331 00:00:00")))) %>%
+  ggplot(aes(x = pct_delp, y = pct_delf)) +
+  geom_point(alpha = 0.4) + 
+  geom_smooth(method = "lm") + 
+  labs(title = "%Change in Funding vs %Change in Price", subtitle = "Exclude March 2020")
+
+full_df %>%
+  filter(not(between(timestamp, ymd_hms("20200301 00:00:00"), ymd_hms("20200331 00:00:00")))) %>%
+  ggplot(aes(x = pct_delp, y = fundingRate)) +
+  geom_point(alpha = 0.4) + 
+  geom_smooth(method = "lm") + 
+  labs(title = "Funding Rate vs %Change in Price", subtitle = "Exclude March 2020")
+
+full_df %>%
+  filter(not(between(timestamp, ymd_hms("20200301 00:00:00"), ymd_hms("20200331 00:00:00")))) %>%
+  filter(or(pct_delp > 0.01, pct_delp < -0.01)) %>%
+  ggplot(aes(x = pct_delp, y = fundingRate)) +
+  geom_point(alpha = 0.4) + 
+  geom_smooth(method = "lm") + 
+  labs(title = "Funding Rate vs %Change in Price", subtitle = "Exclude March 2020")
+
+lm(fundingRate ~ pct_delp, full_df) %>%
+  summary()
+```
+
 ## Other random exploration
 
 ```{r}
@@ -239,8 +293,8 @@ data %>%
 
 ```{r}
 ytd2019 <- data %>%
-  filter(timestamp < ymd_hms("2020-01-01 00:00:00", tz = "US/Eastern"),
-         timestamp >= ymd_hms("2019-01-01 00:00:00", tz = "US/Eastern"))
+  filter(timestamp < ymd_hms("2020-01-01 00:00:00"),
+         timestamp >= ymd_hms("2019-01-01 00:00:00"))
 
 ar <- arima(ytd2019$fundingRate, order = c(3, 0, 15))
 resids <- residuals(ar)
@@ -259,16 +313,16 @@ Lets see how the model fairs out of sample
 
 ```{r}
 abbv_ytd2020 <- data %>%
-  filter(timestamp <= ymd_hms("2020-01-07 20:00:00", tz = "US/Eastern"),
-         timestamp >= ymd_hms("2020-01-01 00:00:00", tz = "US/Eastern"))
+  filter(timestamp <= ymd_hms("2020-01-07 20:00:00"),
+         timestamp >= ymd_hms("2020-01-01 00:00:00"))
 
 
 prediction <- predict(ar, n.ahead = 20)
 forecasted <- tibble(timestamp = abbv_ytd2020$timestamp[1:20], pred = prediction[["pred"]] %>% as.numeric())
 
 ggplot() + 
-  geom_line(bind_rows(ytd2019 %>% filter(timestamp >= ymd_hms("2019-12-17 04:00:00", tz = "US/Eastern")), abbv_ytd2020), mapping = aes(timestamp, fundingRate)) + 
-  geom_line(fitted %>% filter(timestamp >= ymd_hms("2019-12-17 04:00:00", tz = "US/Eastern")), mapping = aes(timestamp, values), color = "green") + 
+  geom_line(bind_rows(ytd2019 %>% filter(timestamp >= ymd_hms("2019-12-17 04:00:00")), abbv_ytd2020), mapping = aes(timestamp, fundingRate)) + 
+  geom_line(fitted %>% filter(timestamp >= ymd_hms("2019-12-17 04:00:00")), mapping = aes(timestamp, values), color = "green") + 
   geom_line(forecasted, mapping = aes(timestamp, pred), color = "red") + 
   labs(title = "Zoomed in on Out of Sample prediction", subtitle = "This is not interesting because I don't have volatility. Need to pick a better sample.")
 ```
@@ -277,7 +331,7 @@ Let me try this attempt to predict right at the beginning of a period of volatil
 
 ```{r}
 ytd2020 <- data %>%
-  filter(timestamp >= ymd_hms("2020-01-01 00:00:00", tz = "US/Eastern"))
+  filter(timestamp >= ymd_hms("2020-01-01 00:00:00"))
 
 ggplot(ytd2020, aes(timestamp, fundingRate)) + 
   geom_line() + 

@@ -16,7 +16,7 @@ while (startDate <= endDate - 1) {
   read <- fread(glue("https://s3-eu-west-1.amazonaws.com/public.bitmex.com/data/trade/{string}.csv.gz")) %>%
     as_tibble() %>%
     filter(symbol == "XBTUSD") %>%
-    mutate(timestamp = ymd_hms(timestamp) %>% with_tz(tz = "US/Eastern")) %>%
+    mutate(timestamp = ymd_hms(timestamp)) %>%
     group_by(hour(timestamp)) %>%
     filter(row_number() == 1,
            hour(timestamp) == 4 | hour(timestamp) == 12 | hour(timestamp) == 20)
